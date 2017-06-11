@@ -4,8 +4,7 @@ var gm = require('gm')
             .subClass({ imageMagick: true }); // Enable ImageMagick integration.
 var util = require('util');
 var fs = require('fs');
-
-var figures = [];
+var xml2js = require('xml2js');
 
 // constants
 var MAX_WIDTH  = 100;
@@ -50,11 +49,20 @@ function processImage(srcKey, callback) {
         function upload(contentType, data, next) {
           console.log("upload(): " + contentType);
           fs.writeFile(dstBucket + '/' + dstKey, data);
-          next(null);
+          next(null, data);
         },
-        function publish(next) {
-          console.log("publish(): " + dstKey);
-          next(null, [srcKey, dstKey, "TODO caption"]);
+        function readXmp(data, next) {
+          console.log("readXmp(): " + srcKey);
+          gm(srcBucket + '/' + srcKey).toBuffer("XMP", next);
+        },
+        function publish(xmpData, next) {
+          console.log("publish(): " + srcKey);
+          //console.log("raw data: " + xmpData);
+          xml2js.Parser().parseString(xmpData, function (err, result) {
+            var caption = result['x:xmpmeta']['rdf:RDF'][0]['rdf:Description'][0]['dc:description'][0]['rdf:Alt'][0]['rdf:li'][0]["_"];
+            console.log('caption: ' + caption);
+            next(null, [srcKey, dstKey, caption]);
+          });
         }
       ], callback
     );
@@ -74,10 +82,16 @@ function processImage(srcKey, callback) {
             }
         }
 
-images = ["2016_13590481_1942374482655774_3308457104912371305_n.jpg", "2016_13584872_10210502083016149_2338582507920623038_o.jpeg"];
+images = [
+  "2016_13590481_1942374482655774_3308457104912371305_n.jpg",
+  "2016_13584872_10210502083016149_2338582507920623038_o.jpeg",
+  "2016_13653220_10210502059015549_3570443696251764115_o.jpeg"];
 
 async.map(images, processImage, function(err, result) {
-  console.log('map() result: ' + result);
+  if (err) {
+    console.error('map() error: ' + err);
+  }
+  else {
+    console.log('map() result: ' + result);
+  }
 });
-
-console.log("figures: " + figures);
