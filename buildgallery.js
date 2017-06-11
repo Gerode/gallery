@@ -5,13 +5,15 @@ var gm = require('gm')
 var util = require('util');
 var fs = require('fs');
 
+var figures = [];
+
 // constants
 var MAX_WIDTH  = 100;
 var MAX_HEIGHT = 100;
+var srcBucket = "../holtfamilytree.com/reunions/images";
+var dstBucket = "test";
 
-function processImage(srcKey) {
-    var srcBucket = "../holtfamilytree.com/reunions/images";
-    var dstBucket = "test";
+function processImage(srcKey, callback) {
 
     var dstKey    = "resized-" + srcKey;
 
@@ -49,22 +51,33 @@ function processImage(srcKey) {
           console.log("upload(): " + contentType);
           fs.writeFile(dstBucket + '/' + dstKey, data);
           next(null);
-            }
-        ], function (err) {
+        },
+        function publish(next) {
+          console.log("publish(): " + dstKey);
+          next(null, [srcKey, dstKey, "TODO caption"]);
+        }
+      ], callback
+    );
+}
+        function finalCallback(err, figure) {
             if (err) {
                 console.error(
-                    'Unable to resize ' + srcBucket + '/' + srcKey +
-                    ' and upload to ' + dstBucket + '/' + dstKey +
+//                    'Unable to resize ' + srcBucket + '/' + srcKey +
+//                    ' and upload to ' + dstBucket + '/' + dstKey +
                     ' due to an error: ' + err
                 );
             } else {
                 console.log(
-                    'Successfully resized ' + srcBucket + '/' + srcKey +
-                    ' and uploaded to ' + dstBucket + '/' + dstKey
+                    'Successfully resized ' + srcBucket + '/' + figure[0] +
+                    ' and uploaded to ' + dstBucket + '/' + figure[1]
                 );
             }
         }
-    );
-}
 
-processImage("2016_13584872_10210502083016149_2338582507920623038_o.jpeg");
+images = ["2016_13590481_1942374482655774_3308457104912371305_n.jpg", "2016_13584872_10210502083016149_2338582507920623038_o.jpeg"];
+
+async.map(images, processImage, function(err, result) {
+  console.log('map() result: ' + result);
+});
+
+console.log("figures: " + figures);
