@@ -55,14 +55,22 @@ function processImage(srcKey, callback) {
           console.log("readXmp(): " + srcKey);
           gm(srcBucket + '/' + srcKey).toBuffer("XMP", next);
         },
-        function publish(xmpData, next) {
-          console.log("publish(): " + srcKey);
+        function extract(xmpData, next) {
+          console.log("extract(): " + srcKey);
           //console.log("raw data: " + xmpData);
           xml2js.Parser().parseString(xmpData, function (err, result) {
             var caption = result['x:xmpmeta']['rdf:RDF'][0]['rdf:Description'][0]['dc:description'][0]['rdf:Alt'][0]['rdf:li'][0]["_"];
             console.log('caption: ' + caption);
             next(null, [srcKey, dstKey, caption]);
           });
+        },
+        function publish(photo, next) {
+          console.log("publish(): " + photo);
+          next(null, 
+              '<figure><a href="' + photo[0] + '" class="thumbnail">\n' +
+              '  <img src="' + photo[0] + '" alt="' + photo[2] + '" class="thumbnail">\n' +
+              '  <figcaption>' + photo[2] + '</figcaption>\n' +
+              '</a></figure>');
         }
       ], callback
     );
@@ -92,6 +100,6 @@ async.map(images, processImage, function(err, result) {
     console.error('map() error: ' + err);
   }
   else {
-    console.log('map() result: ' + result);
+    console.log('<div id="gallery">\n' + result.join('\n') + '\n</div>');
   }
 });
