@@ -105,19 +105,37 @@ function processImage(s3Object, callback) {
     );
 }
 
-s3.listObjectsV2({Bucket: srcBucket, MaxKeys: 10}, function (err, images) {
-  if (err) {
-    console.error('listObjectsV2() error: ' + err, err.stack);
+async.waterfall([
+  function listObjects(next) {
+    s3.listObjectsV2({Bucket: srcBucket, MaxKeys: 10}, next);
+  },
+  function processImages(images, next) {
+    console.log("processImages(): " + images);
+    async.map(images['Contents'].filter(function(object) {return object['Key'].startsWith('2013/2013-05/IMG') && object['Key'].endsWith('g');}), processImage, next);
+  },
+  function createIndex(result, next) {
+    s3.putObject(
+      {
+        Bucket: dstBucket,
+        Key: '2013/2013-05/index.html',
+        Body: '<html><body><div id="gallery">\n' + result.join('\n') + '\n</div></body></html>',
+        ContentType: 'text/html'
+      },
+      next);
+  },
+  function createRootIndex(result, next) {
+    s3.putObject(
+      {
+        Bucket: dstBucket,
+        Key: 'index.html',
+        Body: '<html><body>Hello, world!</body></html>',
+        ContentType: 'text/html'
+      },
+      next);
+  }],
+  function(err, result) {
+    if (err) {
+      console.error('putObject() index  error: ' + err);
+    }
   }
-  else {
-//    console.log(images);
-    async.map(images['Contents'].filter(function(object) {return object['Key'].startsWith('2013/2013-05/IMG') && object['Key'].endsWith('g');}), processImage, function(err, result) {
-      if (err) {
-        console.error('map() error: ' + err);
-      }
-      else {
-        console.log('<div id="gallery">\n' + result.join('\n') + '\n</div>');
-      }
-    });
-  }
-});
+);
