@@ -91,8 +91,8 @@ function processImage(s3Object, callback) {
             function publish(photo, next) {
     //          console.log("publish(): " + photo);
               next(null, 
-                  '<figure><a href="' + photo[0] + '" class="thumbnail">\n' +
-                  '  <img src="' + photo[0] + '" alt="' + photo[2] + '" class="thumbnail">\n' +
+                  '<figure><a href="/' + photo[0] + '" class="thumbnail">\n' +
+                  '  <img src="/' + photo[1] + '" alt="' + photo[2] + '" class="thumbnail">\n' +
                   '  <figcaption>' + photo[2] + '</figcaption>\n' +
                   '</a></figure>');
             }],
