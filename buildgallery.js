@@ -5,10 +5,11 @@ var gm = require('gm')
             .subClass({ imageMagick: true }); // Enable ImageMagick integration.
 var util = require('util');
 var xml2js = require('xml2js');
+var fs = require('fs');
 
 // constants
-var MAX_WIDTH  = 150;
-var MAX_HEIGHT = 150;
+var MAX_WIDTH  = 160;
+var MAX_HEIGHT = 160;
 var srcBucket = "gerodephotos";
 var dstBucket = "gerodephotos";
 
@@ -107,7 +108,7 @@ function processImage(s3Object, callback) {
 
 async.waterfall([
   function listObjects(next) {
-    s3.listObjectsV2({Bucket: srcBucket, MaxKeys: 10}, next);
+    s3.listObjectsV2({Bucket: srcBucket, MaxKeys: 20}, next);
   },
   function processImages(images, next) {
     console.log("processImages(): " + images);
@@ -118,7 +119,7 @@ async.waterfall([
       {
         Bucket: dstBucket,
         Key: '2013/2013-05/index.html',
-        Body: '<html><body><div id="gallery">\n' + result.join('\n') + '\n</div></body></html>',
+        Body: '<html><head><link rel="stylesheet" href="/gallery.css"/></head><body><div id="gallery"><h2><a href="/">Home</a> > <a href="2013">2013</a> > <a href="2013-05">05</a></h2><h1>2013-05</h1>\n' + result.join('\n') + '\n<br><div id="copyright"><a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-sa/4.0/88x31.png" /></a><br />This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">Creative Commons Attribution-ShareAlike 4.0 International License</a>.</div></div></body></html>',
         ContentType: 'text/html'
       },
       next);
@@ -128,8 +129,18 @@ async.waterfall([
       {
         Bucket: dstBucket,
         Key: 'index.html',
-        Body: '<html><body>Hello, world!</body></html>',
+        Body: '<html><head><link rel="stylesheet" href="/gallery.css"/></head><body>Hello, world!</body></html>',
         ContentType: 'text/html'
+      },
+      next);
+  },
+  function createStylesheet(result, next) {
+    s3.putObject(
+      {
+        Bucket: dstBucket,
+        Key: 'gallery.css',
+        Body: fs.readFileSync('gallery.css'),
+        ContentType: 'text/css'
       },
       next);
   }],

@@ -1,0 +1,45 @@
+/*
+   Body structure
+ */
+* {
+  margin: 0;
+  padding: 0;
+}
+
+/*
+   Photo Galleries
+ */
+#gallery {
+  background-color: #222222;
+}
+
+#gallery h1, #gallery h2, #gallery h3, #gallery h4, #gallery h5, #gallery h6, #gallery p {
+  color: #dddddd;
+}
+
+#gallery figure {
+  text-align: center;
+  padding: 5px;
+  display: inline-block;
+  vertical-align: top;
+  max-width: 165px;
+}
+
+#gallery figure:hover {
+  background-color: #444444;
+}
+
+#gallery a {
+  color: #dddddd;
+  text-decoration: none;
+}
+
+.thumbnail {
+/*  max-width: 150px;
+  max-height: 150px;*/
+}
+
+#copyright {
+  color: #dddddd;
+  text-align: center;
+}
