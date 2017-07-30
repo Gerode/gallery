@@ -114,7 +114,19 @@ function processImage(s3Object, callback) {
     );
 }
 
-function htmlNav(pages) {
+//TODO there has to be a better way
+function htmlTree(galleryTree) {
+  console.log("htmlTree: " + galleryTree);
+  if (Array.isArray(galleryTree)) {
+    return '<li><a href="/' + galleryTree[0] + '">' + galleryTree[0] + '</a><ul>' + galleryTree[1].map(function(galleryRoots) {return htmlTree(galleryRoots)}).join('\n') + '</ul></li>';
+  }
+  else {
+    return '<li><a href="/' + galleryTree + '">' + galleryTree + '</a></li>';
+  }
+}
+
+function htmlNav(pageRoot) {
+  var pages = pageRoot.split('/');
   return '<h2><a href="/">Home</a>' + pages.map(function(page, ndx) {
     return ' > <a href="/' + pages.slice(0, ndx+1).join('/') + '">' + page + '</a>';
   }).join('') + '</h2>';
@@ -124,13 +136,10 @@ function htmlCopyright() {
   return '<br><div id="copyright"><a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-sa/4.0/88x31.png" /></a><br />This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">Creative Commons Attribution-ShareAlike 4.0 International License</a>.</div>';
 }
 
-function generateGallery(galleryInfo, callback) {
-  var galleryYr = galleryInfo[0];
-  var galleryMo = galleryInfo[1];
-
+function generateGallery(galleryRoot, callback) {
   async.waterfall([
     function listObjects(next) {
-      s3.listObjectsV2({Bucket: srcBucket, MaxKeys: 20, Prefix: galleryYr + '/' + galleryMo + '/IMG'}, next);
+      s3.listObjectsV2({Bucket: srcBucket, MaxKeys: 20, Prefix: galleryRoot + '/IMG'}, next);
     },
     function processImages(images, next) {
 //      console.log("processImages(): " + images['Contents']);
@@ -140,37 +149,55 @@ function generateGallery(galleryInfo, callback) {
       s3.putObject(
         {
           Bucket: dstBucket,
-          Key: galleryYr + '/' + galleryMo + '/index.html',
-          Body: '<html><head><link rel="stylesheet" href="/gallery.css"/></head><body><div id="gallery">' + htmlNav([galleryYr, galleryMo]) + '<h1>' + galleryMo + '</h1>\n' + result.join('\n') + '\n' + htmlCopyright() + '</div></body></html>',
+          Key: galleryRoot + '/index.html',
+          Body: '<html><head><link rel="stylesheet" href="/gallery.css"/></head><body><div id="gallery">' + htmlNav(galleryRoot) + '<h1>' + galleryRoot + '</h1>\n' + result.join('\n') + '\n' + htmlCopyright() + '</div></body></html>',
           ContentType: 'text/html'
         },
         next);
     }],
     function(err, result) {
       if (err) {
-        console.error('generateGallery() ' + galleryYr + '/' + galleryMo + ' error: ' + err);
+        console.error('generateGallery() ' + galleryRoot + ' error: ' + err);
       }
       else {
-        callback(null, galleryYr + '/' + galleryMo);
+        callback(null, galleryRoot);
       }
     }
   );
 }
 
+function createDirIndex(root, galleryTree, next) {
+  console.log("createDirIndex(): " + root + ", " + galleryTree);
+  s3.putObject(
+    {
+      Bucket: dstBucket,
+      Key: (root.length > 0 ? root + '/':'') + 'index.html',
+      Body: '<html><head><link rel="stylesheet" href="/gallery.css"/></head><body><div id="gallerydir">' + htmlNav(root) + '<ul>' + galleryTree[1].map(htmlTree).join('') + '</ul>' + htmlCopyright() + '</div></body></html>',
+      ContentType: 'text/html'
+    },
+    next);
+}
+function generateGalleries(galleryInfos, callback) {
+  console.log('generateGalleries() ' + galleryInfos + ' started');
+  if (Array.isArray(galleryInfos)) {
+    async.map(galleryInfos[1], generateGalleries, function(err, results) {
+      console.log('generateGalleries() ' + galleryInfos + ' results: ' + results);
+      if (err) {
+        console.error('generateGalleries() ' + galleryInfos[0] + ' error: ' + err);
+      }
+      else {
+        createDirIndex(galleryInfos[0], galleryInfos, callback);
+      }
+    });
+  }
+  else {
+    generateGallery(galleryInfos, callback);
+  }
+}
+
 async.waterfall([
-  function generateGalleries(next) {
-    async.map([['2013', '05'], ['2014', '02']], generateGallery, next);
-  },
-  function createRootIndex(galleries, next) {
-    console.log("createRootIndex(): " + galleries);
-    s3.putObject(
-      {
-        Bucket: dstBucket,
-        Key: 'index.html',
-        Body: '<html><head><link rel="stylesheet" href="/gallery.css"/></head><body><div id="gallerydir">' + htmlNav([]) + galleries.map(function(gallery) {return '<div><a href="' + gallery + '">' + gallery + '</a></div>'}).join('\n') + htmlCopyright() + '</div></body></html>',
-        ContentType: 'text/html'
-      },
-      next);
+  function generateAllGalleries(next) {
+    generateGalleries(['', [['2013', ['2013/05']], ['2014', ['2014/02']]]], next);
   },
   function createStylesheet(result, next) {
     s3.putObject(
