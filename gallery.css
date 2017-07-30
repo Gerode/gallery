@@ -7,6 +7,18 @@
 }
 
 /*
+   Gallery Directories
+ */
+#gallerydir {
+  background-color: #222222;
+}
+
+#gallerydir a {
+  color: #dddddd;
+  text-decoration: none;
+}
+
+/*
    Photo Galleries
  */
 #gallery {
@@ -35,8 +47,6 @@
 }
 
 .thumbnail {
-/*  max-width: 150px;
-  max-height: 150px;*/
 }
 
 #copyright {
