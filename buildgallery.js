@@ -232,14 +232,30 @@ function generateGalleries(galleryInfos, callback) {
   }
 }
 
+function listGalleries(s3result, callback) {
+  var prefix = s3result['Prefix'];
+//    console.log('listGalleries(): ' + prefix);
+  s3.listObjectsV2({Bucket: srcBucket, MaxKeys: 100, Prefix: prefix, Delimiter: '/'},
+      function(err, s3result) {
+        callback(err, [prefix.slice(0, -1), s3result['CommonPrefixes'].map(function(commonPrefix) {
+          return commonPrefix['Prefix'].slice(0, -1);}
+          )])
+      }
+      );
+}
+
 async.waterfall([
-  function generateAllGalleries(next) {
-    generateGalleries(['', [
-        ['2013', ['2013/05']],
-//        ['2014', ['2014/02', '2014/03', '2014/09', '2014/10', '2014/12']],
-//        ['2015', ['2015/04', '2015/08', '2015/12']],
-        ['2016', ['2016/03', '2016/06', '2016/07']]
-    ]], next);
+  function findGalleries(next) {
+    s3.listObjectsV2({Bucket: srcBucket, MaxKeys: 2, Delimiter: '/'}, next);
+  },
+  //TODO make recursive
+  function findAllGalleries(files, next) {
+      async.map(files['CommonPrefixes'].filter(function(object) {return object['Prefix'].endsWith('/');}), listGalleries, next);
+  },
+  function generateAllGalleries(galleryRoots, next) {
+    console.log('generateAllGalleries(): ' + galleryRoots);
+
+    generateGalleries(['', galleryRoots], next);
   },
   function createStylesheet(result, next) {
     s3.putObject(
