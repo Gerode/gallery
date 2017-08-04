@@ -30,6 +30,15 @@
   margin-left: 16px;
 }
 
+.dirthumbnail, .dirthumbnail div {
+  display: inline-block;
+  text-align: center;
+}
+
+.dirthumbnail img {
+  display: block;
+}
+
 /*
    Photo Galleries
  */

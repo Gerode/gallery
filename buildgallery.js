@@ -75,15 +75,6 @@ function processImage(s3Object, callback) {
             }
             });
 
-          function publish(caption, next) {
-//              console.log("publish(): " + caption);
-            next(null, 
-                '<figure><a href="/images/' + srcKey + '" class="thumbnail">\n' +
-                '  <img src="/' + dstKey + '" alt="' + caption + '" class="thumbnail">\n' +
-                '  <figcaption>' + caption + '</figcaption>\n' +
-                '</a></figure>');
-          };
-
           async.waterfall([
             function readXmp(next) {
 //              console.log("readXmp(): " + srcKey);
@@ -99,11 +90,11 @@ function processImage(s3Object, callback) {
             }],
             function(err, result) {
               if (err) {
-                console.error('process() ' + srcKey + ' metadata error: ' + err);
-                publish('', outernext);
+                console.log('process() ' + srcKey + ' metadata error: ' + err);
+                outernext(null, {'SrcKey' : srcKey, 'DstKey': dstKey, 'Caption': ''});
               }
               else {
-                publish(result, outernext);
+                outernext(null, {'SrcKey' : srcKey, 'DstKey': dstKey, 'Caption': result});
               }
             }
           );
@@ -114,25 +105,59 @@ function processImage(s3Object, callback) {
     );
 }
 
-function htmlTree(galleryMetadata) {
-//  console.log("htmlTree(): " + galleryMetadata);
-  if (Array.isArray(galleryMetadata)) {
-    return '<li><a href="/' + galleryMetadata[0] + '">' + galleryMetadata[0] + '</a><ul>' + galleryMetadata[1].map(htmlTree).join('\n') + '</ul></li>';
+function processMetadata(srcKey, callback) {
+    async.waterfall([
+        function download(next) {
+          s3.getObject({
+            Bucket: srcBucket,
+            Key: srcKey
+            },
+            next);
+        },
+        function readJson(response, next) {
+          next(null, JSON.parse(response.Body));
+        },
+    ],
+    function(err, result) {
+      callback(err, err ? {} : result);
+    });
+}
+
+function htmlPage(title, body) {
+  return '<html><head><meta charset="UTF-8"><link rel="stylesheet" href="/gallery.css"/><title>' + title + '</title></head><body>' + body + '</body></html>';
+}
+
+function htmlTree(metadata) {
+//  console.log("htmlTree(): " + metadata);
+  if (Array.isArray(metadata)) {
+    return '<li><a href="/' + metadata[0] + '">' + metadata[0] + '</a><ul>' + metadata[1].map(htmlTree).join('\n') + '</ul></li>';
   }
   else {
-    return '<li><a href="/' + galleryMetadata['Root'] + '">' + galleryMetadata['Root'] + ' ' + galleryMetadata['Title'] + '</a></li>';
+    return '<li class="dirthumbnail"><div><a href="/' + metadata['Root'] + '">' +
+      '  <img src="/' + metadata['ThumbnailKey'] + '" alt="' + (metadata['Title'] || metadata['Root']) + '" class="thumbnail"><div>' + (metadata['Title'] || metadata['Root']) +
+      '</div></a></div></li>';
   }
+}
+
+function htmlFigure(result) {
+  var srcKey = result['SrcKey'];
+  var dstKey = result['DstKey'];
+  var caption = result['Caption'];
+  return '<figure><a href="/images/' + srcKey + '" class="thumbnail">\n' +
+            '  <img src="/' + dstKey + '" alt="' + caption + '" class="thumbnail">\n' +
+            '  <figcaption>' + caption + '</figcaption>\n' +
+            '</a></figure>';
 }
 
 function htmlNav(pageRoot) {
   var pages = pageRoot.split('/').filter(function(page) {return page.length > 0});
-  return '<h2><a href="/">' + dstBucket + '</a>' + pages.map(function(page, ndx) {
+  return '<nav><h2><a href="/">' + dstBucket + '</a>' + pages.map(function(page, ndx) {
     return ' > <a href="/' + pages.slice(0, ndx+1).join('/') + '">' + page + '</a>';
-  }).join('') + '</h2>';
+  }).join('') + '</h2></nav>';
 }
 
 function htmlCopyright() {
-  return '<br><div id="copyright"><a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-sa/4.0/88x31.png" /></a><br />This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">Creative Commons Attribution-ShareAlike 4.0 International License</a>.</div>';
+  return '<br><footer><div id="copyright"><a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-sa/4.0/88x31.png" /></a><br />This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">Creative Commons Attribution-ShareAlike 4.0 International License</a>.</div></footer>';
 }
 
 function generateGallery(galleryRoot, callback) {
@@ -140,19 +165,28 @@ function generateGallery(galleryRoot, callback) {
     function listObjects(next) {
       s3.listObjectsV2({Bucket: srcBucket, MaxKeys: 10, Prefix: galleryRoot + '/'}, next);
     },
-    function processImages(images, next) {
-//      console.log("processImages(): " + images['Contents']);
-      async.map(images['Contents'].filter(function(object) {return object['Key'].endsWith('g');}), processImage, next);
+    function processFiles(files, next) {
+//      console.log("processFiles(): " + files['Contents']);
+      async.map(files['Contents'].filter(function(object) {return object['Key'].endsWith('g');}), processImage, next);
     },
     function parseMetadata(result, next) {
-      next(null, result, {'Root': galleryRoot, 'Title': 'Turkey TODO'});//TODO externalize
+      processMetadata(galleryRoot + '/metadata.json', function(err, metadata) {
+        metadata['Root'] = galleryRoot;
+        if (metadata['Thumbnail']) {
+          metadata['ThumbnailKey'] = 'thumb/' + metadata['Root'] + '/' +  metadata['Thumbnail'];
+        }
+        else {
+          metadata['ThumbnailKey'] = result[0]['DstKey'];
+        }
+        next(null, result, metadata);
+      });
     },
-    function createIndex(figures, metadata, next) {
+    function createIndex(images, metadata, next) {
       s3.putObject(
         {
           Bucket: dstBucket,
           Key: galleryRoot + '/index.html',
-          Body: '<html><head><link rel="stylesheet" href="/gallery.css"/><title>' + dstBucket + ' ' + metadata['Root'] + ' ' + metadata['Title'] + '</title></head><body><div id="gallery">' + htmlNav(galleryRoot) + '<h1>' + metadata['Title'] + '</h1>\n' + figures.join('\n') + '\n' + htmlCopyright() + '</div></body></html>',
+          Body: htmlPage(dstBucket + ' ' + metadata['Root'] + ' ' + (metadata['Title'] || ''),  '<div id="gallery">' + htmlNav(galleryRoot) + '<h1>' + (metadata['Title'] || '') + '</h1>\n<p>' + (metadata['Description'] || '') + '</p>\n' +  images.map(htmlFigure).join('\n') + '\n' + htmlCopyright() + '</div>'),
           ContentType: 'text/html'
         },
         function(err, data) {next(err, metadata);});
@@ -170,12 +204,12 @@ function generateGallery(galleryRoot, callback) {
 
 function createDirIndex(galleryMetadata, next) {
   var root = galleryMetadata[0];
-console.log("createDirIndex(): " + root + ", galleryMetadata: " + galleryMetadata);
+//console.log("createDirIndex(): " + root + ", galleryMetadata: " + galleryMetadata);
   s3.putObject(
     {
       Bucket: dstBucket,
       Key: (root.length > 0 ? root + '/':'') + 'index.html',
-      Body: '<html><head><link rel="stylesheet" href="/gallery.css"/><title>' + dstBucket + ' ' + root + '</title></head><body><div id="gallerydir">' + htmlNav(root) + '<ul>' + galleryMetadata[1].map(htmlTree).join('') + '</ul>' + htmlCopyright() + '</div></body></html>',
+      Body: htmlPage(dstBucket + ' ' + root, '<div id="gallerydir">' + htmlNav(root) + '<ul>' + galleryMetadata[1].map(htmlTree).join('') + '</ul>' + htmlCopyright() + '</div>'),
       ContentType: 'text/html'
     },
     function(err, results) {next(err, galleryMetadata);});
@@ -200,7 +234,12 @@ function generateGalleries(galleryInfos, callback) {
 
 async.waterfall([
   function generateAllGalleries(next) {
-    generateGalleries(['', [['2013', ['2013/05']], ['2014', ['2014/02', '2014/03']]]], next);
+    generateGalleries(['', [
+        ['2013', ['2013/05']],
+//        ['2014', ['2014/02', '2014/03', '2014/09', '2014/10', '2014/12']],
+//        ['2015', ['2015/04', '2015/08', '2015/12']],
+        ['2016', ['2016/03', '2016/06', '2016/07']]
+    ]], next);
   },
   function createStylesheet(result, next) {
     s3.putObject(
