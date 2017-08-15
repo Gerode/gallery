@@ -1,62 +1,63 @@
+// Scans an S3 bucket for JPEG images, and creates a Javascript photo gallery
+// Code adapted from https://docs.aws.amazon.com/lambda/latest/dg/with-s3-example.html
 
 var async = require('async');
 var AWS = require('aws-sdk');
 var gm = require('gm')
             .subClass({ imageMagick: true }); // Enable ImageMagick integration.
-var util = require('util');
 var xml2js = require('xml2js');
 var fs = require('fs');
 
-// constants
 var MAX_WIDTH  = 300;
 var MAX_HEIGHT = 300;
-var srcBucket = "gerodephotos";
-var dstBucket = "gerodegallery";
+
+var srcBucket = process.argv[2];
+var dstBucket = process.argv[3];
+if (!srcBucket || !dstBucket) {
+  throw Error("usage: node buildgallery.js srcBucket dstBucket");
+}
 
 AWS.config.loadFromPath('./keys.json');
 var s3 = new AWS.S3();
 
+// Download the image from S3, transform, and upload to a different S3 bucket.
 function processImage(s3Object, callback) {
-    var srcKey    = s3Object['Key'];
-    var dstKey    = "thumb/" + srcKey;
+  var srcKey    = s3Object['Key'];
+  var dstKey    = "thumb/" + srcKey;
 
-    // Download the image from S3, transform, and upload to a different S3 bucket.
-    async.waterfall([
-        function download(outernext) {
-//          console.log("download(): " + srcKey);
-          // Download the image from S3 into a buffer.
-          s3.getObject({
-            Bucket: srcBucket,
-            Key: srcKey
-            },
-            outernext);
+  async.waterfall([
+      function download(outernext) {
+        // Download the image from S3 into a buffer.
+        s3.getObject({
+          Bucket: srcBucket,
+          Key: srcKey
         },
-        function process(response, outernext) {
-          async.waterfall([
+        outernext);
+      },
+      function process(response, outernext) {
+        async.waterfall([
             function transform(next) {
-//              console.log("transform(): " + response);
               gm(response.Body).size(function(err, size) {
-                  // Infer the scaling factor to avoid stretching the image unnaturally.
-                  var scalingFactor = Math.min(
-                      MAX_WIDTH / size.width,
-                      MAX_HEIGHT / size.height
-                  );
-                  var width  = scalingFactor * size.width;
-                  var height = scalingFactor * size.height;
+                // Infer the scaling factor to avoid stretching the image unnaturally.
+                var scalingFactor = Math.min(
+                    MAX_WIDTH / size.width,
+                    MAX_HEIGHT / size.height
+                    );
+                var width  = scalingFactor * size.width;
+                var height = scalingFactor * size.height;
 
-                  // Transform the image buffer in memory.
-                  this.resize(width, height)
-                      .toBuffer("jpg", function(err, buffer) {
-                          if (err) {
-                              next("transform() " + err, response.ContentType);
-                          } else {
-                              next(null, response.ContentType, buffer);
-                          }
-                      });
+                // Transform the image buffer in memory.
+                this.resize(width, height)
+                  .toBuffer("jpg", function(err, buffer) {
+                    if (err) {
+                      next("transform() " + err, response.ContentType);
+                    } else {
+                      next(null, response.ContentType, buffer);
+                    }
+                  });
               });
             },
             function upload(contentType, thumbnail, next) {
-//              console.log("upload(): " + dstKey);
               s3.putObject({
                 Bucket: dstBucket,
                 Key: dstKey,
@@ -66,23 +67,20 @@ function processImage(s3Object, callback) {
               next);
             }],
             function (err) {
-            if (err) {
+              if (err) {
                 console.error(
                     'Unable to resize ' + srcBucket + '/' + srcKey +
                     ' and upload to ' + dstBucket + '/' + dstKey +
                     ' due to an error: ' + err
-                );
-            }
+                    );
+              }
             });
 
-          async.waterfall([
+        async.waterfall([
             function readXmp(next) {
-//              console.log("readXmp(): " + srcKey);
               gm(response.Body).toBuffer("XMP", next);
             },
             function extract(xmpData, next) {
-//              console.log("extract(): " + srcKey);
-              //console.log("raw data: " + xmpData);
               xml2js.Parser().parseString(xmpData, function (err, result) {
                 var caption = result['x:xmpmeta']['rdf:RDF'][0]['rdf:Description'][0]['dc:description'][0]['rdf:Alt'][0]['rdf:li'][0]["_"];
                 next(null, caption);
@@ -90,37 +88,34 @@ function processImage(s3Object, callback) {
             }],
             function(err, result) {
               if (err) {
-                console.log('process() ' + srcKey + ' metadata error: ' + err);
-                outernext(null, {'SrcKey' : srcKey, 'DstKey': dstKey, 'Caption': ''});
+                // Metadata problems are non-fatal; just blank it out
+                console.log('Error parsing metadata for ' + srcKey + ': ' + err);
               }
-              else {
-                outernext(null, {'SrcKey' : srcKey, 'DstKey': dstKey, 'Caption': result});
-              }
+              outernext(null, {'SrcKey' : srcKey, 'DstKey': dstKey, 'Caption': err ? '' : result});
             }
-          );
-        },
-            
+        );
+      },
       ], 
-      callback
-    );
+    callback
+  );
 }
 
 function processMetadata(srcKey, callback) {
-    async.waterfall([
-        function download(next) {
-          s3.getObject({
-            Bucket: srcBucket,
-            Key: srcKey
-            },
-            next);
+  async.waterfall([
+      function download(next) {
+        s3.getObject({
+          Bucket: srcBucket,
+          Key: srcKey
         },
-        function readJson(response, next) {
-          next(null, JSON.parse(response.Body));
-        },
-    ],
-    function(err, result) {
-      callback(err, err ? {} : result);
-    });
+        next);
+      },
+      function readJson(response, next) {
+        next(null, JSON.parse(response.Body));
+      },
+  ],
+  function(err, result) {
+    callback(err, err ? {} : result);
+  });
 }
 
 function htmlPage(title, body) {
@@ -128,7 +123,6 @@ function htmlPage(title, body) {
 }
 
 function htmlTree(metadata) {
-//  console.log("htmlTree(): " + metadata);
   if (Array.isArray(metadata)) {
     return '<li><a href="/' + metadata[0] + '">' + metadata[0] + '</a><ul>' + metadata[1].map(htmlTree).join('\n') + '</ul></li>';
   }
@@ -166,7 +160,6 @@ function generateGallery(galleryRoot, callback) {
       s3.listObjectsV2({Bucket: srcBucket, MaxKeys: 10, Prefix: galleryRoot + '/'}, next);
     },
     function processFiles(files, next) {
-//      console.log("processFiles(): " + files['Contents']);
       async.map(files['Contents'].filter(function(object) {return object['Key'].endsWith('g');}), processImage, next);
     },
     function parseMetadata(result, next) {
@@ -193,7 +186,7 @@ function generateGallery(galleryRoot, callback) {
     }],
     function(err, result) {
       if (err) {
-        console.error('generateGallery() ' + galleryRoot + ' error: ' + err);
+        console.error('Error generating gallery for ' + galleryRoot + ': ' + err);
       }
       else {
         callback(null, result);
@@ -204,7 +197,6 @@ function generateGallery(galleryRoot, callback) {
 
 function createDirIndex(galleryMetadata, next) {
   var root = galleryMetadata[0];
-//console.log("createDirIndex(): " + root + ", galleryMetadata: " + galleryMetadata);
   s3.putObject(
     {
       Bucket: dstBucket,
@@ -215,11 +207,10 @@ function createDirIndex(galleryMetadata, next) {
     function(err, results) {next(err, galleryMetadata);});
 }
 function generateGalleries(galleryInfos, callback) {
-//  console.log('generateGalleries() ' + galleryInfos + ' started');
   if (Array.isArray(galleryInfos)) {
     async.map(galleryInfos[1], generateGalleries, function(err, results, metadata) {
-      console.log('generateGalleries() ' + galleryInfos + ' results: ' + results);
       if (err) {
+        //TODO cleanup error handling
         console.error('generateGalleries() ' + galleryInfos[0] + ' error: ' + err);
       }
       else {
@@ -234,7 +225,6 @@ function generateGalleries(galleryInfos, callback) {
 
 function listGalleries(s3result, callback) {
   var prefix = s3result['Prefix'];
-//    console.log('listGalleries(): ' + prefix);
   s3.listObjectsV2({Bucket: srcBucket, MaxKeys: 100, Prefix: prefix, Delimiter: '/'},
       function(err, s3result) {
         callback(err, [prefix.slice(0, -1), s3result['CommonPrefixes'].map(function(commonPrefix) {
@@ -253,7 +243,6 @@ async.waterfall([
       async.map(files['CommonPrefixes'].filter(function(object) {return object['Prefix'].endsWith('/');}), listGalleries, next);
   },
   function generateAllGalleries(galleryRoots, next) {
-    console.log('generateAllGalleries(): ' + galleryRoots);
 
     generateGalleries(['', galleryRoots], next);
   },
